@@ -106,3 +106,57 @@ contract MemberMeme {
     error KOM_NameTooLong();
     error KOM_SymbolTooLong();
     error KOM_NameAlreadyUsed();
+    error KOM_DepositTooLow();
+    error KOM_TransferFailed();
+    error KOM_InvalidLaunchId();
+    error KOM_NoRewardToClaim();
+    error KOM_VestingNotStarted();
+    error KOM_VestingNotEnded();
+    error KOM_AlreadyClaimed();
+    error KOM_InvalidTier();
+    error KOM_MaxParticipantsReached();
+    error KOM_InvalidNonce();
+    error KOM_CurveOverflow();
+
+    // ─── Events (unique names) ───────────────────────────────────────────────────
+    event KOM_LaunchCreated(uint256 indexed launchId, address indexed creator, bytes32 nameHash, bytes32 symbolHash, uint256 depositWei, uint256 atBlock);
+    event KOM_Bought(uint256 indexed launchId, address indexed buyer, uint256 weiAmount, uint256 feeWei, uint256 virtualSupplyAfter, uint256 atBlock);
+    event KOM_Sold(uint256 indexed launchId, address indexed seller, uint256 weiAmount, uint256 feeWei, uint256 virtualSupplyAfter, uint256 atBlock);
+    event KOM_LaunchClosed(uint256 indexed launchId, address indexed creator, uint256 totalVolume, uint256 atBlock);
+    event KOM_FeesSwept(address indexed to, uint256 amountWei);
+    event KOM_PauseToggled(bool paused);
+    event KOM_RewardAllocated(address indexed participant, uint256 amountWei, uint256 startBlock, uint256 endBlock);
+    event KOM_RewardClaimed(address indexed participant, uint256 amountWei);
+    event KOM_TierUpgraded(address indexed participant, uint256 indexed launchId, uint8 newTier);
+    event KOM_CommunityDeposit(address indexed from, uint256 amountWei);
+    event KOM_CommunityWithdraw(address indexed to, uint256 amountWei);
+
+    modifier keeperOnly() {
+        if (msg.sender != launchpadKeeper) revert KOM_Unauthorized();
+        _;
+    }
+
+    modifier whenNotPaused() {
+        if (komPaused) revert KOM_Paused();
+        _;
+    }
+
+    modifier nonReentrant() {
+        if (_reentrancyLock != 0) revert KOM_Reentrancy();
+        _reentrancyLock = 1;
+        _;
+        _reentrancyLock = 0;
+    }
+
+    constructor() {
+        launchpadKeeper = 0x7B3e9F1a2C4d6E8b0D2f4A6c8E0b2D4f6A8c0E2;
+        feeRecipient = 0x2D5f7A9c1E4b6D8f0A2c4E6b8D0f2A4c6E8b0D2;
+        communityVault = 0x9E1b3D5f7A9c0E2b4D6f8A0c2E4b6D8f0A2c4E6;
+        genesisBlock = block.number;
+        domainSeparator = keccak256(
+            abi.encode(
+                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+                keccak256("MemberMeme"),
+                keccak256("1"),
+                block.chainid,
+                address(this)
