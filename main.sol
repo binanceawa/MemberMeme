@@ -52,3 +52,57 @@ contract MemberMeme {
         bytes32 nameHash;
         bytes32 symbolHash;
         address creator;
+        uint256 depositWei;
+        uint256 virtualSupply;
+        uint256 virtualReserve;
+        uint256 totalBoughtWei;
+        uint256 totalSoldWei;
+        uint256 rewardPoolWei;
+        uint256 createdAtBlock;
+        bool closed;
+        uint256 participantCount;
+    }
+    mapping(uint256 => KOMLaunch) public komLaunches;
+
+    struct KOMParticipant {
+        uint256 boughtWei;
+        uint256 soldWei;
+        uint256 netContributionWei;
+        uint256 lastBuyBlock;
+        uint256 lastSellBlock;
+        uint256 rewardClaimedWei;
+        uint8 tier; // 0 none, 1 bronze, 2 silver, 3 gold, 4 diamond
+    }
+    mapping(uint256 => mapping(address => KOMParticipant)) public komParticipants;
+
+    struct KOMRewardVesting {
+        uint256 totalAllocatedWei;
+        uint256 claimedWei;
+        uint256 startBlock;
+        uint256 endBlock;
+    }
+    mapping(address => KOMRewardVesting) public komVesting;
+
+    mapping(uint256 => address[]) public launchParticipantList;
+    mapping(address => uint256) public userLaunchCount;
+    mapping(address => uint256[]) public userLaunchIds;
+    mapping(address => uint256) public userNonce;
+    mapping(bytes32 => bool) public launchNameUsed;
+    mapping(uint256 => uint256) public launchTotalFees;
+
+    // ─── Custom errors (unique names) ────────────────────────────────────────────
+    error KOM_Unauthorized();
+    error KOM_Paused();
+    error KOM_Reentrancy();
+    error KOM_ZeroAddress();
+    error KOM_ZeroAmount();
+    error KOM_MaxLaunchesReached();
+    error KOM_LaunchNotFound();
+    error KOM_LaunchClosed();
+    error KOM_BuyTooSmall();
+    error KOM_BuyTooLarge();
+    error KOM_InsufficientBalance();
+    error KOM_CooldownActive();
+    error KOM_NameTooLong();
+    error KOM_SymbolTooLong();
+    error KOM_NameAlreadyUsed();
