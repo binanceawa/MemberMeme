@@ -509,3 +509,76 @@ contract MemberMeme {
     function getTierForNet(uint256 netContributionWei) external pure returns (uint8) {
         if (netContributionWei >= KOM_TIER_DIAMOND_THRESHOLD) return 4;
         if (netContributionWei >= KOM_TIER_GOLD_THRESHOLD) return 3;
+        if (netContributionWei >= KOM_TIER_SILVER_THRESHOLD) return 2;
+        if (netContributionWei >= KOM_TIER_BRONZE_THRESHOLD) return 1;
+        return 0;
+    }
+
+    function getVestingInfo(address user) external view returns (
+        uint256 totalAllocatedWei_,
+        uint256 claimedWei_,
+        uint256 startBlock_,
+        uint256 endBlock_,
+        uint256 claimableNow_
+    ) {
+        KOMRewardVesting storage v = komVesting[user];
+        totalAllocatedWei_ = v.totalAllocatedWei;
+        claimedWei_ = v.claimedWei;
+        startBlock_ = v.startBlock;
+        endBlock_ = v.endBlock;
+        if (block.number < v.startBlock || v.totalAllocatedWei == 0) {
+            claimableNow_ = 0;
+        } else if (block.number >= v.endBlock) {
+            claimableNow_ = v.totalAllocatedWei - v.claimedWei;
+        } else {
+            uint256 elapsed = block.number - v.startBlock;
+            uint256 totalDuration = v.endBlock - v.startBlock;
+            uint256 maxClaimable = (v.totalAllocatedWei * elapsed) / totalDuration;
+            claimableNow_ = maxClaimable > v.claimedWei ? maxClaimable - v.claimedWei : 0;
+        }
+    }
+
+    function getGlobalStats() external view returns (
+        uint256 totalLaunches_,
+        uint256 totalVolume_,
+        uint256 totalFees_,
+        uint256 totalBuys_,
+        uint256 totalSells_,
+        uint256 currentLaunchNonce_
+    ) {
+        return (
+            totalLaunchesCreated,
+            totalVolumeWei,
+            totalFeesCollected,
+            totalBuysExecuted,
+            totalSellsExecuted,
+            launchNonce
+        );
+    }
+
+    function getLaunchIdsPaginated(uint256 offset, uint256 limit) external view returns (uint256[] memory ids) {
+        uint256 maxId = launchNonce;
+        if (offset >= maxId) return new uint256[](0);
+        uint256 end = offset + limit;
+        if (end > maxId) end = maxId;
+        uint256 len = end - offset;
+        ids = new uint256[](len);
+        for (uint256 i = 0; i < len; i++) {
+            ids[i] = offset + i + 1;
+        }
+    }
+
+    function canBuy(uint256 launchId, address user) external view returns (bool) {
+        if (launchId == 0 || launchId > launchNonce) return false;
+        KOMLaunch storage l = komLaunches[launchId];
+        if (l.closed) return false;
+        if (l.participantCount >= KOM_MAX_PARTICIPANTS_PER_LAUNCH) return false;
+        KOMParticipant storage p = komParticipants[launchId][user];
+        if (p.lastBuyBlock != 0 && block.number < p.lastBuyBlock + KOM_COOLDOWN_BLOCKS) return false;
+        return true;
+    }
+
+    function canSell(uint256 launchId, address user, uint256 weiAmount) external view returns (bool) {
+        if (launchId == 0 || launchId > launchNonce) return false;
+        KOMLaunch storage l = komLaunches[launchId];
+        if (l.closed) return false;
