@@ -436,3 +436,76 @@ contract MemberMeme {
             l.nameHash,
             l.symbolHash,
             l.creator,
+            l.depositWei,
+            l.virtualSupply,
+            l.virtualReserve,
+            l.totalBoughtWei,
+            l.totalSoldWei,
+            l.rewardPoolWei,
+            l.createdAtBlock,
+            l.closed,
+            l.participantCount
+        );
+    }
+
+    function getParticipant(uint256 launchId, address user) external view returns (
+        uint256 boughtWei_,
+        uint256 soldWei_,
+        uint256 netContributionWei_,
+        uint256 lastBuyBlock_,
+        uint256 lastSellBlock_,
+        uint256 rewardClaimedWei_,
+        uint8 tier_
+    ) {
+        KOMParticipant storage p = komParticipants[launchId][user];
+        return (
+            p.boughtWei,
+            p.soldWei,
+            p.netContributionWei,
+            p.lastBuyBlock,
+            p.lastSellBlock,
+            p.rewardClaimedWei,
+            p.tier
+        );
+    }
+
+    function getLaunchParticipantCount(uint256 launchId) external view returns (uint256) {
+        return launchParticipantList[launchId].length;
+    }
+
+    function getLaunchParticipantAt(uint256 launchId, uint256 index) external view returns (address) {
+        return launchParticipantList[launchId][index];
+    }
+
+    function getUserLaunchIds(address user) external view returns (uint256[] memory) {
+        return userLaunchIds[user];
+    }
+
+    function getBuyQuote(uint256 launchId, uint256 weiAmount) external view returns (
+        uint256 feeWei_,
+        uint256 toCurveWei_,
+        uint256 newSupply_
+    ) {
+        if (launchId == 0 || launchId > launchNonce) revert KOM_InvalidLaunchId();
+        KOMLaunch storage l = komLaunches[launchId];
+        feeWei_ = (weiAmount * KOM_BUY_FEE_BPS) / KOM_BPS_DENOM;
+        toCurveWei_ = weiAmount - feeWei_;
+        (uint256 ns,) = _curveBuy(l.virtualSupply, l.virtualReserve, toCurveWei_);
+        newSupply_ = ns;
+    }
+
+    function getSellQuote(uint256 launchId, uint256 weiAmount) external view returns (
+        uint256 outWei_,
+        uint256 feeWei_,
+        uint256 toUserWei_
+    ) {
+        if (launchId == 0 || launchId > launchNonce) revert KOM_InvalidLaunchId();
+        KOMLaunch storage l = komLaunches[launchId];
+        (, , outWei_) = _curveSell(l.virtualSupply, l.virtualReserve, weiAmount);
+        feeWei_ = (outWei_ * KOM_SELL_FEE_BPS) / KOM_BPS_DENOM;
+        toUserWei_ = outWei_ - feeWei_;
+    }
+
+    function getTierForNet(uint256 netContributionWei) external pure returns (uint8) {
+        if (netContributionWei >= KOM_TIER_DIAMOND_THRESHOLD) return 4;
+        if (netContributionWei >= KOM_TIER_GOLD_THRESHOLD) return 3;
