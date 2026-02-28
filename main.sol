@@ -290,3 +290,76 @@ contract MemberMeme {
 
         part.soldWei += weiAmount;
         part.netContributionWei = part.boughtWei > part.soldWei ? part.boughtWei - part.soldWei : 0;
+        part.lastSellBlock = block.number;
+        _updateTier(launchId, msg.sender, part);
+
+        totalVolumeWei += weiAmount;
+        totalSellsExecuted++;
+
+        (bool payOk,) = msg.sender.call{value: toUser}("");
+        if (!payOk) revert KOM_TransferFailed();
+
+        emit KOM_Sold(launchId, msg.sender, weiAmount, feeWei, newSupply, block.number);
+    }
+
+    /// @notice Close a launch so no more buys/sells. Keeper or creator.
+    function closeLaunch(uint256 launchId) external nonReentrant {
+        if (launchId == 0 || launchId > launchNonce) revert KOM_InvalidLaunchId();
+        KOMLaunch storage launch = komLaunches[launchId];
+        if (launch.closed) revert KOM_LaunchClosed();
+        if (msg.sender != launchpadKeeper && msg.sender != launch.creator) revert KOM_Unauthorized();
+        launch.closed = true;
+        emit KOM_LaunchClosed(launchId, launch.creator, launch.totalBoughtWei + launch.totalSoldWei, block.number);
+    }
+
+    /// @notice Allocate reward from launch pool to a participant (vested). Keeper only.
+    function allocateReward(
+        uint256 launchId,
+        address participant,
+        uint256 amountWei
+    ) external keeperOnly nonReentrant {
+        if (launchId == 0 || launchId > launchNonce) revert KOM_InvalidLaunchId();
+        KOMLaunch storage launch = komLaunches[launchId];
+        if (launch.rewardPoolWei < amountWei) revert KOM_InsufficientBalance();
+        launch.rewardPoolWei -= amountWei;
+
+        KOMRewardVesting storage vest = komVesting[participant];
+        if (vest.totalAllocatedWei == 0) {
+            vest.startBlock = block.number;
+            vest.endBlock = block.number + KOM_VESTING_BLOCKS;
+        }
+        vest.totalAllocatedWei += amountWei;
+
+        emit KOM_RewardAllocated(participant, amountWei, vest.startBlock, vest.endBlock);
+    }
+
+    /// @notice Claim vested reward. Linear vest over KOM_VESTING_BLOCKS.
+    function claimVestedReward() external nonReentrant {
+        KOMRewardVesting storage vest = komVesting[msg.sender];
+        if (vest.totalAllocatedWei == 0) revert KOM_NoRewardToClaim();
+        if (block.number < vest.startBlock) revert KOM_VestingNotStarted();
+
+        uint256 claimable;
+        if (block.number >= vest.endBlock) {
+            claimable = vest.totalAllocatedWei - vest.claimedWei;
+        } else {
+            uint256 elapsed = block.number - vest.startBlock;
+            uint256 totalDuration = vest.endBlock - vest.startBlock;
+            uint256 maxClaimable = (vest.totalAllocatedWei * elapsed) / totalDuration;
+            claimable = maxClaimable > vest.claimedWei ? maxClaimable - vest.claimedWei : 0;
+        }
+        if (claimable == 0) revert KOM_NoRewardToClaim();
+
+        vest.claimedWei += claimable;
+        (bool ok,) = msg.sender.call{value: claimable}("");
+        if (!ok) revert KOM_TransferFailed();
+        emit KOM_RewardClaimed(msg.sender, claimable);
+    }
+
+    /// @notice Sweep collected fees to fee recipient. Keeper only.
+    function sweepFees() external keeperOnly nonReentrant {
+        uint256 bal = address(this).balance;
+        if (bal == 0) revert KOM_ZeroAmount();
+        (bool ok,) = feeRecipient.call{value: bal}("");
+        if (!ok) revert KOM_TransferFailed();
+        emit KOM_FeesSwept(feeRecipient, bal);
