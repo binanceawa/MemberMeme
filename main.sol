@@ -363,3 +363,76 @@ contract MemberMeme {
         (bool ok,) = feeRecipient.call{value: bal}("");
         if (!ok) revert KOM_TransferFailed();
         emit KOM_FeesSwept(feeRecipient, bal);
+    }
+
+    /// @notice Toggle pause. Keeper only.
+    function setPaused(bool paused) external keeperOnly {
+        komPaused = paused;
+        emit KOM_PauseToggled(paused);
+    }
+
+    /// @notice Deposit ETH into community vault (this contract holds it; vault address is immutable).
+    function depositToCommunity() external payable whenNotPaused {
+        if (msg.value == 0) revert KOM_ZeroAmount();
+        emit KOM_CommunityDeposit(msg.sender, msg.value);
+    }
+
+    /// @notice Withdraw community balance to vault. Keeper only.
+    function withdrawCommunityToVault(uint256 amountWei) external keeperOnly nonReentrant {
+        if (amountWei == 0) revert KOM_ZeroAmount();
+        (bool ok,) = communityVault.call{value: amountWei}("");
+        if (!ok) revert KOM_TransferFailed();
+        emit KOM_CommunityWithdraw(communityVault, amountWei);
+    }
+
+    function _curveBuy(uint256 supply, uint256 reserve, uint256 weiIn) internal pure returns (uint256 newSupply, uint256 newReserve) {
+        newReserve = reserve + weiIn;
+        uint256 supplyDelta = (weiIn * KOM_CURVE_DENOM) / (reserve + KOM_CURVE_SLOPE);
+        newSupply = supply + supplyDelta;
+        if (newSupply < supply || newReserve < reserve) revert KOM_CurveOverflow();
+    }
+
+    function _curveSell(uint256 supply, uint256 reserve, uint256 weiOut) internal pure returns (uint256 newSupply, uint256 newReserve, uint256 outWei) {
+        if (supply <= KOM_CURVE_DENOM || reserve < weiOut) revert KOM_CurveOverflow();
+        uint256 supplyDelta = (weiOut * KOM_CURVE_DENOM) / (reserve - weiOut + KOM_CURVE_SLOPE);
+        if (supplyDelta >= supply) revert KOM_CurveOverflow();
+        newSupply = supply - supplyDelta;
+        newReserve = reserve - weiOut;
+        outWei = weiOut;
+    }
+
+    function _updateTier(uint256 launchId, address user, KOMParticipant storage part) internal {
+        uint256 net = part.netContributionWei;
+        uint8 newTier = 0;
+        if (net >= KOM_TIER_DIAMOND_THRESHOLD) newTier = 4;
+        else if (net >= KOM_TIER_GOLD_THRESHOLD) newTier = 3;
+        else if (net >= KOM_TIER_SILVER_THRESHOLD) newTier = 2;
+        else if (net >= KOM_TIER_BRONZE_THRESHOLD) newTier = 1;
+        if (newTier != part.tier) {
+            part.tier = newTier;
+            emit KOM_TierUpgraded(user, launchId, newTier);
+        }
+    }
+
+    // ─── View helpers ────────────────────────────────────────────────────────────
+
+    function getLaunch(uint256 launchId) external view returns (
+        bytes32 nameHash_,
+        bytes32 symbolHash_,
+        address creator_,
+        uint256 depositWei_,
+        uint256 virtualSupply_,
+        uint256 virtualReserve_,
+        uint256 totalBoughtWei_,
+        uint256 totalSoldWei_,
+        uint256 rewardPoolWei_,
+        uint256 createdAtBlock_,
+        bool closed_,
+        uint256 participantCount_
+    ) {
+        if (launchId == 0 || launchId > launchNonce) revert KOM_InvalidLaunchId();
+        KOMLaunch storage l = komLaunches[launchId];
+        return (
+            l.nameHash,
+            l.symbolHash,
+            l.creator,
