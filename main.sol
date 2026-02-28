@@ -71,3 +71,76 @@ contract MemberMeme {
         uint256 netContributionWei;
         uint256 lastBuyBlock;
         uint256 lastSellBlock;
+        uint256 rewardClaimedWei;
+        uint8 tier; // 0 none, 1 bronze, 2 silver, 3 gold, 4 diamond
+    }
+    mapping(uint256 => mapping(address => KOMParticipant)) public komParticipants;
+
+    struct KOMRewardVesting {
+        uint256 totalAllocatedWei;
+        uint256 claimedWei;
+        uint256 startBlock;
+        uint256 endBlock;
+    }
+    mapping(address => KOMRewardVesting) public komVesting;
+
+    mapping(uint256 => address[]) public launchParticipantList;
+    mapping(address => uint256) public userLaunchCount;
+    mapping(address => uint256[]) public userLaunchIds;
+    mapping(address => uint256) public userNonce;
+    mapping(bytes32 => bool) public launchNameUsed;
+    mapping(uint256 => uint256) public launchTotalFees;
+
+    // ─── Custom errors (unique names) ────────────────────────────────────────────
+    error KOM_Unauthorized();
+    error KOM_Paused();
+    error KOM_Reentrancy();
+    error KOM_ZeroAddress();
+    error KOM_ZeroAmount();
+    error KOM_MaxLaunchesReached();
+    error KOM_LaunchNotFound();
+    error KOM_LaunchClosed();
+    error KOM_BuyTooSmall();
+    error KOM_BuyTooLarge();
+    error KOM_InsufficientBalance();
+    error KOM_CooldownActive();
+    error KOM_NameTooLong();
+    error KOM_SymbolTooLong();
+    error KOM_NameAlreadyUsed();
+    error KOM_DepositTooLow();
+    error KOM_TransferFailed();
+    error KOM_InvalidLaunchId();
+    error KOM_NoRewardToClaim();
+    error KOM_VestingNotStarted();
+    error KOM_VestingNotEnded();
+    error KOM_AlreadyClaimed();
+    error KOM_InvalidTier();
+    error KOM_MaxParticipantsReached();
+    error KOM_InvalidNonce();
+    error KOM_CurveOverflow();
+
+    // ─── Events (unique names) ───────────────────────────────────────────────────
+    event KOM_LaunchCreated(uint256 indexed launchId, address indexed creator, bytes32 nameHash, bytes32 symbolHash, uint256 depositWei, uint256 atBlock);
+    event KOM_Bought(uint256 indexed launchId, address indexed buyer, uint256 weiAmount, uint256 feeWei, uint256 virtualSupplyAfter, uint256 atBlock);
+    event KOM_Sold(uint256 indexed launchId, address indexed seller, uint256 weiAmount, uint256 feeWei, uint256 virtualSupplyAfter, uint256 atBlock);
+    event KOM_LaunchClosed(uint256 indexed launchId, address indexed creator, uint256 totalVolume, uint256 atBlock);
+    event KOM_FeesSwept(address indexed to, uint256 amountWei);
+    event KOM_PauseToggled(bool paused);
+    event KOM_RewardAllocated(address indexed participant, uint256 amountWei, uint256 startBlock, uint256 endBlock);
+    event KOM_RewardClaimed(address indexed participant, uint256 amountWei);
+    event KOM_TierUpgraded(address indexed participant, uint256 indexed launchId, uint8 newTier);
+    event KOM_CommunityDeposit(address indexed from, uint256 amountWei);
+    event KOM_CommunityWithdraw(address indexed to, uint256 amountWei);
+
+    modifier keeperOnly() {
+        if (msg.sender != launchpadKeeper) revert KOM_Unauthorized();
+        _;
+    }
+
+    modifier whenNotPaused() {
+        if (komPaused) revert KOM_Paused();
+        _;
+    }
+
+    modifier nonReentrant() {
+        if (_reentrancyLock != 0) revert KOM_Reentrancy();
