@@ -144,3 +144,76 @@ contract MemberMeme {
 
     modifier nonReentrant() {
         if (_reentrancyLock != 0) revert KOM_Reentrancy();
+        _reentrancyLock = 1;
+        _;
+        _reentrancyLock = 0;
+    }
+
+    constructor() {
+        launchpadKeeper = 0x7B3e9F1a2C4d6E8b0D2f4A6c8E0b2D4f6A8c0E2;
+        feeRecipient = 0x2D5f7A9c1E4b6D8f0A2c4E6b8D0f2A4c6E8b0D2;
+        communityVault = 0x09E1b3D5f7A9c0E2b4D6f8A0c2E4b6D8f0A2c4E6;
+        genesisBlock = block.number;
+        domainSeparator = keccak256(
+            abi.encode(
+                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+                keccak256("MemberMeme"),
+                keccak256("1"),
+                block.chainid,
+                address(this)
+            )
+        );
+        launchNonce = 0;
+    }
+
+    /// @notice Create a new meme launch. Caller pays deposit; name/symbol hashed and stored.
+    function createLaunch(
+        bytes32 nameHash,
+        bytes32 symbolHash,
+        string calldata nameDisplay,
+        string calldata symbolDisplay
+    ) external payable whenNotPaused nonReentrant returns (uint256 launchId) {
+        if (totalLaunchesCreated >= KOM_MAX_LAUNCHES) revert KOM_MaxLaunchesReached();
+        if (msg.value < KOM_MIN_LAUNCH_DEPOSIT) revert KOM_DepositTooLow();
+        if (bytes(nameDisplay).length > KOM_NAME_MAX_LEN) revert KOM_NameTooLong();
+        if (bytes(symbolDisplay).length > KOM_SYMBOL_MAX_LEN) revert KOM_SymbolTooLong();
+        if (launchNameUsed[nameHash]) revert KOM_NameAlreadyUsed();
+        launchNameUsed[nameHash] = true;
+
+        launchId = ++launchNonce;
+        totalLaunchesCreated++;
+
+        uint256 feeWei = (msg.value * KOM_LAUNCH_FEE_BPS) / KOM_BPS_DENOM;
+        uint256 depositNet = msg.value - feeWei;
+        totalFeesCollected += feeWei;
+        if (feeWei > 0) {
+            (bool feeOk,) = feeRecipient.call{value: feeWei}("");
+            if (!feeOk) revert KOM_TransferFailed();
+        }
+
+        komLaunches[launchId] = KOMLaunch({
+            nameHash: nameHash,
+            symbolHash: symbolHash,
+            creator: msg.sender,
+            depositWei: depositNet,
+            virtualSupply: KOM_CURVE_DENOM,
+            virtualReserve: depositNet,
+            totalBoughtWei: 0,
+            totalSoldWei: 0,
+            rewardPoolWei: 0,
+            createdAtBlock: block.number,
+            closed: false,
+            participantCount: 0
+        });
+
+        userLaunchCount[msg.sender]++;
+        userLaunchIds[msg.sender].push(launchId);
+
+        emit KOM_LaunchCreated(launchId, msg.sender, nameHash, symbolHash, depositNet, block.number);
+        return launchId;
+    }
+
+    /// @notice Buy meme position: ETH in, curve updates, fees to recipient and reward pool.
+    function buyMeme(uint256 launchId) external payable whenNotPaused nonReentrant {
+        if (launchId == 0 || launchId > launchNonce) revert KOM_InvalidLaunchId();
+        KOMLaunch storage launch = komLaunches[launchId];
