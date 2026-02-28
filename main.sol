@@ -217,3 +217,76 @@ contract MemberMeme {
     function buyMeme(uint256 launchId) external payable whenNotPaused nonReentrant {
         if (launchId == 0 || launchId > launchNonce) revert KOM_InvalidLaunchId();
         KOMLaunch storage launch = komLaunches[launchId];
+        if (launch.closed) revert KOM_LaunchClosed();
+        if (msg.value < KOM_MIN_BUY_WEI) revert KOM_BuyTooSmall();
+        if (msg.value > KOM_MAX_BUY_WEI) revert KOM_BuyTooLarge();
+        if (launch.participantCount >= KOM_MAX_PARTICIPANTS_PER_LAUNCH) revert KOM_MaxParticipantsReached();
+
+        KOMParticipant storage part = komParticipants[launchId][msg.sender];
+        if (part.lastBuyBlock != 0 && block.number < part.lastBuyBlock + KOM_COOLDOWN_BLOCKS) revert KOM_CooldownActive();
+
+        uint256 feeWei = (msg.value * KOM_BUY_FEE_BPS) / KOM_BPS_DENOM;
+        uint256 toCurve = msg.value - feeWei;
+        totalFeesCollected += feeWei;
+        launchTotalFees[launchId] += feeWei;
+
+        uint256 rewardShare = (feeWei * KOM_REWARD_POOL_BPS) / KOM_BPS_DENOM;
+        launch.rewardPoolWei += rewardShare;
+        uint256 feeToRecipient = feeWei - rewardShare;
+        if (feeToRecipient > 0) {
+            (bool ok,) = feeRecipient.call{value: feeToRecipient}("");
+            if (!ok) revert KOM_TransferFailed();
+        }
+
+        (uint256 newSupply, uint256 newReserve) = _curveBuy(launch.virtualSupply, launch.virtualReserve, toCurve);
+        launch.virtualSupply = newSupply;
+        launch.virtualReserve = newReserve;
+        launch.totalBoughtWei += msg.value;
+
+        if (part.boughtWei == 0 && part.soldWei == 0) {
+            launch.participantCount++;
+            launchParticipantList[launchId].push(msg.sender);
+        }
+        part.boughtWei += msg.value;
+        part.netContributionWei = part.boughtWei > part.soldWei ? part.boughtWei - part.soldWei : 0;
+        part.lastBuyBlock = block.number;
+        _updateTier(launchId, msg.sender, part);
+
+        totalVolumeWei += msg.value;
+        totalBuysExecuted++;
+
+        emit KOM_Bought(launchId, msg.sender, msg.value, feeWei, newSupply, block.number);
+    }
+
+    /// @notice Sell meme position: curve decreases, ETH out to sender minus fee.
+    function sellMeme(uint256 launchId, uint256 weiAmount) external whenNotPaused nonReentrant {
+        if (launchId == 0 || launchId > launchNonce) revert KOM_InvalidLaunchId();
+        KOMLaunch storage launch = komLaunches[launchId];
+        if (launch.closed) revert KOM_LaunchClosed();
+        if (weiAmount == 0) revert KOM_ZeroAmount();
+
+        KOMParticipant storage part = komParticipants[launchId][msg.sender];
+        if (part.netContributionWei < weiAmount) revert KOM_InsufficientBalance();
+        if (part.lastSellBlock != 0 && block.number < part.lastSellBlock + KOM_COOLDOWN_BLOCKS) revert KOM_CooldownActive();
+
+        (uint256 newSupply, uint256 newReserve, uint256 outWei) = _curveSell(launch.virtualSupply, launch.virtualReserve, weiAmount);
+
+        uint256 feeWei = (outWei * KOM_SELL_FEE_BPS) / KOM_BPS_DENOM;
+        uint256 toUser = outWei - feeWei;
+        totalFeesCollected += feeWei;
+        launchTotalFees[launchId] += feeWei;
+
+        uint256 rewardShare = (feeWei * KOM_REWARD_POOL_BPS) / KOM_BPS_DENOM;
+        launch.rewardPoolWei += rewardShare;
+        uint256 feeToRecipient = feeWei - rewardShare;
+        if (feeToRecipient > 0) {
+            (bool ok,) = feeRecipient.call{value: feeToRecipient}("");
+            if (!ok) revert KOM_TransferFailed();
+        }
+
+        launch.virtualSupply = newSupply;
+        launch.virtualReserve = newReserve;
+        launch.totalSoldWei += weiAmount;
+
+        part.soldWei += weiAmount;
+        part.netContributionWei = part.boughtWei > part.soldWei ? part.boughtWei - part.soldWei : 0;
