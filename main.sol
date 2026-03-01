@@ -655,3 +655,76 @@ contract MemberMeme {
         if (p.lastSellBlock == 0) return 0;
         uint256 endBlock = p.lastSellBlock + KOM_COOLDOWN_BLOCKS;
         if (block.number >= endBlock) return 0;
+        return endBlock - block.number;
+    }
+
+    /// @notice Batch fetch launch summaries for multiple IDs. Skips invalid IDs with zeros.
+    function getLaunchSummaries(uint256[] calldata launchIds) external view returns (
+        address[] memory creators,
+        uint256[] memory totalVolumes,
+        uint256[] memory participantCounts,
+        bool[] memory closedFlags
+    ) {
+        uint256 n = launchIds.length;
+        creators = new address[](n);
+        totalVolumes = new uint256[](n);
+        participantCounts = new uint256[](n);
+        closedFlags = new bool[](n);
+        for (uint256 i = 0; i < n; i++) {
+            uint256 id = launchIds[i];
+            if (id != 0 && id <= launchNonce) {
+                KOMLaunch storage l = komLaunches[id];
+                creators[i] = l.creator;
+                totalVolumes[i] = l.totalBoughtWei + l.totalSoldWei;
+                participantCounts[i] = l.participantCount;
+                closedFlags[i] = l.closed;
+            }
+        }
+    }
+
+    /// @notice Batch fetch participant data for one launch and multiple addresses.
+    function getParticipantBatch(uint256 launchId, address[] calldata users) external view returns (
+        uint256[] memory netContributions,
+        uint8[] memory tiers
+    ) {
+        uint256 n = users.length;
+        netContributions = new uint256[](n);
+        tiers = new uint8[](n);
+        for (uint256 i = 0; i < n; i++) {
+            KOMParticipant storage p = komParticipants[launchId][users[i]];
+            netContributions[i] = p.netContributionWei;
+            tiers[i] = p.tier;
+        }
+    }
+
+    /// @notice Simulate buy and return (newSupply, newReserve, feeWei) without state change.
+    function simulateBuy(uint256 launchId, uint256 weiAmount) external view returns (
+        uint256 newSupply,
+        uint256 newReserve,
+        uint256 feeWei
+    ) {
+        if (launchId == 0 || launchId > launchNonce) revert KOM_InvalidLaunchId();
+        KOMLaunch storage l = komLaunches[launchId];
+        feeWei = (weiAmount * KOM_BUY_FEE_BPS) / KOM_BPS_DENOM;
+        uint256 toCurve = weiAmount - feeWei;
+        (newSupply, newReserve) = _curveBuy(l.virtualSupply, l.virtualReserve, toCurve);
+    }
+
+    /// @notice Simulate sell and return (newSupply, newReserve, outWei, feeWei, toUser).
+    function simulateSell(uint256 launchId, uint256 weiAmount) external view returns (
+        uint256 newSupply,
+        uint256 newReserve,
+        uint256 outWei,
+        uint256 feeWei,
+        uint256 toUser
+    ) {
+        if (launchId == 0 || launchId > launchNonce) revert KOM_InvalidLaunchId();
+        KOMLaunch storage l = komLaunches[launchId];
+        (newSupply, newReserve, outWei) = _curveSell(l.virtualSupply, l.virtualReserve, weiAmount);
+        feeWei = (outWei * KOM_SELL_FEE_BPS) / KOM_BPS_DENOM;
+        toUser = outWei - feeWei;
+    }
+
+    /// @notice Returns the launch fee in wei for a given deposit amount.
+    function getLaunchFeeForDeposit(uint256 depositWei) external pure returns (uint256 feeWei) {
+        return (depositWei * KOM_LAUNCH_FEE_BPS) / KOM_BPS_DENOM;
