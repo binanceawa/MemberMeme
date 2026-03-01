@@ -947,3 +947,70 @@ contract MemberMeme {
 
     /// @notice Returns the current chain id (convenience).
     function getChainId() external view returns (uint256) {
+        return block.chainid;
+    }
+
+    /// @notice Returns the current block number (convenience).
+    function getBlockNumber() external view returns (uint256) {
+        return block.number;
+    }
+
+    /// @notice Returns estimated vesting end timestamp (blocks to seconds approximate: 12s per block).
+    function getVestingEndApproxSeconds(address user) external view returns (uint256) {
+        KOMRewardVesting storage v = komVesting[user];
+        if (v.endBlock <= block.number) return 0;
+        return (v.endBlock - block.number) * 12;
+    }
+
+    /// @notice Returns total participant count across all launches (sum of each launch's participant count).
+    function getTotalParticipantCountAllLaunches() external view returns (uint256 total) {
+        for (uint256 id = 1; id <= launchNonce; id++) {
+            total += komLaunches[id].participantCount;
+        }
+    }
+
+    /// @notice Returns launch IDs that are still open (not closed and under max participants).
+    function getOpenLaunchIds(uint256 maxReturn) external view returns (uint256[] memory ids) {
+        uint256 count = 0;
+        for (uint256 id = 1; id <= launchNonce && count < maxReturn; id++) {
+            KOMLaunch storage l = komLaunches[id];
+            if (!l.closed && l.participantCount < KOM_MAX_PARTICIPANTS_PER_LAUNCH) {
+                count++;
+            }
+        }
+        ids = new uint256[](count);
+        uint256 j = 0;
+        for (uint256 id = 1; id <= launchNonce && j < count; id++) {
+            KOMLaunch storage l = komLaunches[id];
+            if (!l.closed && l.participantCount < KOM_MAX_PARTICIPANTS_PER_LAUNCH) {
+                ids[j] = id;
+                j++;
+            }
+        }
+    }
+
+    /// @notice Returns the number of open launches.
+    function getOpenLaunchCount() external view returns (uint256) {
+        uint256 count = 0;
+        for (uint256 id = 1; id <= launchNonce; id++) {
+            KOMLaunch storage l = komLaunches[id];
+            if (!l.closed && l.participantCount < KOM_MAX_PARTICIPANTS_PER_LAUNCH) count++;
+        }
+        return count;
+    }
+
+    /// @notice Returns whether the given address is the launchpad keeper.
+    function isKeeper(address account) external view returns (bool) {
+        return account == launchpadKeeper;
+    }
+
+    /// @notice Returns whether the given address is the fee recipient.
+    function isFeeRecipient(address account) external view returns (bool) {
+        return account == feeRecipient;
+    }
+
+    /// @notice Returns whether the given address is the community vault.
+    function isCommunityVault(address account) external view returns (bool) {
+        return account == communityVault;
+    }
+}
