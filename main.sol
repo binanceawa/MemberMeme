@@ -874,3 +874,76 @@ contract MemberMeme {
     function getLaunchRewardPool(uint256 launchId) external view returns (uint256) {
         if (launchId == 0 || launchId > launchNonce) revert KOM_InvalidLaunchId();
         return komLaunches[launchId].rewardPoolWei;
+    }
+
+    /// @notice Returns whether launch is open for trading.
+    function isLaunchOpen(uint256 launchId) external view returns (bool) {
+        if (launchId == 0 || launchId > launchNonce) return false;
+        KOMLaunch storage l = komLaunches[launchId];
+        return !l.closed && l.participantCount < KOM_MAX_PARTICIPANTS_PER_LAUNCH;
+    }
+
+    /// @notice Returns creator of a launch.
+    function getLaunchCreator(uint256 launchId) external view returns (address) {
+        if (launchId == 0 || launchId > launchNonce) revert KOM_InvalidLaunchId();
+        return komLaunches[launchId].creator;
+    }
+
+    /// @notice Returns creation block of a launch.
+    function getLaunchCreatedAtBlock(uint256 launchId) external view returns (uint256) {
+        if (launchId == 0 || launchId > launchNonce) revert KOM_InvalidLaunchId();
+        return komLaunches[launchId].createdAtBlock;
+    }
+
+    /// @notice Batch get effective price for multiple launches.
+    function getEffectivePriceBatch(uint256[] calldata launchIds) external view returns (uint256[] memory pricesE18) {
+        uint256 n = launchIds.length;
+        pricesE18 = new uint256[](n);
+        for (uint256 i = 0; i < n; i++) {
+            uint256 id = launchIds[i];
+            if (id != 0 && id <= launchNonce) {
+                KOMLaunch storage l = komLaunches[id];
+                if (l.virtualSupply != 0) {
+                    pricesE18[i] = (l.virtualReserve * 1e18) / l.virtualSupply;
+                }
+            }
+        }
+    }
+
+    /// @notice Returns constants bundle for frontends (BPS, limits, thresholds).
+    function getConstantsBundle() external pure returns (
+        uint256 bpsDenom,
+        uint256 launchFeeBps,
+        uint256 buyFeeBps,
+        uint256 sellFeeBps,
+        uint256 maxLaunches,
+        uint256 minBuyWei,
+        uint256 maxBuyWei,
+        uint256 minLaunchDeposit,
+        uint256 vestingBlocks,
+        uint256 cooldownBlocks,
+        uint256 bronzeThreshold,
+        uint256 silverThreshold,
+        uint256 goldThreshold,
+        uint256 diamondThreshold
+    ) {
+        return (
+            KOM_BPS_DENOM,
+            KOM_LAUNCH_FEE_BPS,
+            KOM_BUY_FEE_BPS,
+            KOM_SELL_FEE_BPS,
+            KOM_MAX_LAUNCHES,
+            KOM_MIN_BUY_WEI,
+            KOM_MAX_BUY_WEI,
+            KOM_MIN_LAUNCH_DEPOSIT,
+            KOM_VESTING_BLOCKS,
+            KOM_COOLDOWN_BLOCKS,
+            KOM_TIER_BRONZE_THRESHOLD,
+            KOM_TIER_SILVER_THRESHOLD,
+            KOM_TIER_GOLD_THRESHOLD,
+            KOM_TIER_DIAMOND_THRESHOLD
+        );
+    }
+
+    /// @notice Returns the current chain id (convenience).
+    function getChainId() external view returns (uint256) {
