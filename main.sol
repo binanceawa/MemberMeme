@@ -582,3 +582,76 @@ contract MemberMeme {
         if (launchId == 0 || launchId > launchNonce) return false;
         KOMLaunch storage l = komLaunches[launchId];
         if (l.closed) return false;
+        KOMParticipant storage p = komParticipants[launchId][user];
+        if (p.netContributionWei < weiAmount) return false;
+        if (p.lastSellBlock != 0 && block.number < p.lastSellBlock + KOM_COOLDOWN_BLOCKS) return false;
+        return true;
+    }
+
+    receive() external payable {
+        revert KOM_ZeroAmount();
+    }
+
+    // ─── Tier and display helpers (pure/view) ────────────────────────────────────
+
+    uint256 public constant KOM_TIER_LABEL_NONE = 0;
+    uint256 public constant KOM_TIER_LABEL_BRONZE = 1;
+    uint256 public constant KOM_TIER_LABEL_SILVER = 2;
+    uint256 public constant KOM_TIER_LABEL_GOLD = 3;
+    uint256 public constant KOM_TIER_LABEL_DIAMOND = 4;
+
+    /// @notice Returns tier label index for a net contribution amount (0–4).
+    function tierLabelForAmount(uint256 netWei) external pure returns (uint256) {
+        if (netWei >= KOM_TIER_DIAMOND_THRESHOLD) return KOM_TIER_LABEL_DIAMOND;
+        if (netWei >= KOM_TIER_GOLD_THRESHOLD) return KOM_TIER_LABEL_GOLD;
+        if (netWei >= KOM_TIER_SILVER_THRESHOLD) return KOM_TIER_LABEL_SILVER;
+        if (netWei >= KOM_TIER_BRONZE_THRESHOLD) return KOM_TIER_LABEL_BRONZE;
+        return KOM_TIER_LABEL_NONE;
+    }
+
+    /// @notice Returns the minimum net contribution required for a given tier (0–4).
+    function minNetWeiForTier(uint8 tierIndex) external pure returns (uint256) {
+        if (tierIndex == 0) return 0;
+        if (tierIndex == 1) return KOM_TIER_BRONZE_THRESHOLD;
+        if (tierIndex == 2) return KOM_TIER_SILVER_THRESHOLD;
+        if (tierIndex == 3) return KOM_TIER_GOLD_THRESHOLD;
+        if (tierIndex == 4) return KOM_TIER_DIAMOND_THRESHOLD;
+        revert KOM_InvalidTier();
+    }
+
+    /// @notice Computes effective price (reserve per unit supply) scaled by 1e18.
+    function getEffectivePrice(uint256 launchId) external view returns (uint256 priceE18) {
+        if (launchId == 0 || launchId > launchNonce) revert KOM_InvalidLaunchId();
+        KOMLaunch storage l = komLaunches[launchId];
+        if (l.virtualSupply == 0) return 0;
+        return (l.virtualReserve * 1e18) / l.virtualSupply;
+    }
+
+    /// @notice Returns total volume (bought + sold) for a launch.
+    function getLaunchTotalVolume(uint256 launchId) external view returns (uint256) {
+        if (launchId == 0 || launchId > launchNonce) revert KOM_InvalidLaunchId();
+        KOMLaunch storage l = komLaunches[launchId];
+        return l.totalBoughtWei + l.totalSoldWei;
+    }
+
+    /// @notice Returns whether the sender has any position in the given launch.
+    function hasPosition(uint256 launchId, address account) external view returns (bool) {
+        KOMParticipant storage p = komParticipants[launchId][account];
+        return p.netContributionWei > 0;
+    }
+
+    /// @notice Returns cooldown blocks remaining for buy on launch for user (0 if none).
+    function buyCooldownRemaining(uint256 launchId, address user) external view returns (uint256) {
+        KOMParticipant storage p = komParticipants[launchId][user];
+        if (p.lastBuyBlock == 0) return 0;
+        uint256 endBlock = p.lastBuyBlock + KOM_COOLDOWN_BLOCKS;
+        if (block.number >= endBlock) return 0;
+        return endBlock - block.number;
+    }
+
+    /// @notice Returns cooldown blocks remaining for sell on launch for user (0 if none).
+    function sellCooldownRemaining(uint256 launchId, address user) external view returns (uint256) {
+        KOMParticipant storage p = komParticipants[launchId][user];
+        if (p.lastSellBlock == 0) return 0;
+        uint256 endBlock = p.lastSellBlock + KOM_COOLDOWN_BLOCKS;
+        if (block.number >= endBlock) return 0;
