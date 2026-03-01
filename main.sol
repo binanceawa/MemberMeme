@@ -801,3 +801,76 @@ contract MemberMeme {
     /// @notice Compute name hash from string (keccak256 of the string).
     function hashLaunchName(string calldata name) external pure returns (bytes32) {
         return keccak256(bytes(name));
+    }
+
+    /// @notice Compute symbol hash from string.
+    function hashLaunchSymbol(string calldata symbol) external pure returns (bytes32) {
+        return keccak256(bytes(symbol));
+    }
+
+    /// @notice Returns block numbers for vesting of a user (start, end, current).
+    function getVestingBlocks(address user) external view returns (uint256 start, uint256 end, uint256 current) {
+        KOMRewardVesting storage v = komVesting[user];
+        return (v.startBlock, v.endBlock, block.number);
+    }
+
+    /// @notice Returns how many launches a user has created.
+    function getCreatorLaunchCount(address user) external view returns (uint256) {
+        return userLaunchCount[user];
+    }
+
+    /// @notice Returns launch IDs created by a user (paginated: offset and limit).
+    function getCreatorLaunchIdsPaginated(address user, uint256 offset, uint256 limit) external view returns (uint256[] memory ids) {
+        uint256[] storage all = userLaunchIds[user];
+        uint256 len = all.length;
+        if (offset >= len) return new uint256[](0);
+        uint256 end = offset + limit;
+        if (end > len) end = len;
+        uint256 resultLen = end - offset;
+        ids = new uint256[](resultLen);
+        for (uint256 i = 0; i < resultLen; i++) {
+            ids[i] = all[offset + i];
+        }
+    }
+
+    /// @notice Full launch snapshot for a single launch (all fields + total volume and fees).
+    function getLaunchFull(uint256 launchId) external view returns (
+        bytes32 nameHash_,
+        bytes32 symbolHash_,
+        address creator_,
+        uint256 depositWei_,
+        uint256 virtualSupply_,
+        uint256 virtualReserve_,
+        uint256 totalBoughtWei_,
+        uint256 totalSoldWei_,
+        uint256 totalVolumeWei_,
+        uint256 rewardPoolWei_,
+        uint256 createdAtBlock_,
+        bool closed_,
+        uint256 participantCount_,
+        uint256 totalFeesWei_
+    ) {
+        if (launchId == 0 || launchId > launchNonce) revert KOM_InvalidLaunchId();
+        KOMLaunch storage l = komLaunches[launchId];
+        return (
+            l.nameHash,
+            l.symbolHash,
+            l.creator,
+            l.depositWei,
+            l.virtualSupply,
+            l.virtualReserve,
+            l.totalBoughtWei,
+            l.totalSoldWei,
+            l.totalBoughtWei + l.totalSoldWei,
+            l.rewardPoolWei,
+            l.createdAtBlock,
+            l.closed,
+            l.participantCount,
+            launchTotalFees[launchId]
+        );
+    }
+
+    /// @notice Returns the reward pool size for a launch.
+    function getLaunchRewardPool(uint256 launchId) external view returns (uint256) {
+        if (launchId == 0 || launchId > launchNonce) revert KOM_InvalidLaunchId();
+        return komLaunches[launchId].rewardPoolWei;
