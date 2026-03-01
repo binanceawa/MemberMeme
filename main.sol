@@ -728,3 +728,76 @@ contract MemberMeme {
     /// @notice Returns the launch fee in wei for a given deposit amount.
     function getLaunchFeeForDeposit(uint256 depositWei) external pure returns (uint256 feeWei) {
         return (depositWei * KOM_LAUNCH_FEE_BPS) / KOM_BPS_DENOM;
+    }
+
+    /// @notice Returns the net deposit (after fee) for a given gross deposit.
+    function getLaunchDepositNet(uint256 depositWei) external pure returns (uint256 netWei) {
+        uint256 fee = (depositWei * KOM_LAUNCH_FEE_BPS) / KOM_BPS_DENOM;
+        return depositWei - fee;
+    }
+
+    /// @notice Returns buy fee in wei for a given buy amount.
+    function getBuyFeeWei(uint256 weiAmount) external pure returns (uint256) {
+        return (weiAmount * KOM_BUY_FEE_BPS) / KOM_BPS_DENOM;
+    }
+
+    /// @notice Returns sell fee in wei for a given sell (out) amount (approximate; actual fee on outWei).
+    function getSellFeeWei(uint256 outWei) external pure returns (uint256) {
+        return (outWei * KOM_SELL_FEE_BPS) / KOM_BPS_DENOM;
+    }
+
+    /// @notice Checks if name hash is already used (prevents duplicate launch names).
+    function isLaunchNameUsed(bytes32 nameHash) external view returns (bool) {
+        return launchNameUsed[nameHash];
+    }
+
+    /// @notice Returns total fees collected for a specific launch.
+    function getLaunchFees(uint256 launchId) external view returns (uint256) {
+        return launchTotalFees[launchId];
+    }
+
+    /// @notice Returns contract ETH balance (fees + community deposits not yet swept).
+    function getContractBalance() external view returns (uint256) {
+        return address(this).balance;
+    }
+
+    /// @notice Returns genesis block and domain separator for off-chain verification.
+    function getDomainInfo() external view returns (uint256 genesis_, bytes32 domain_) {
+        return (genesisBlock, domainSeparator);
+    }
+
+    /// @notice Returns all immutable addresses in one call.
+    function getImmutableAddresses() external view returns (
+        address keeper_,
+        address feeRecipient_,
+        address vault_
+    ) {
+        return (launchpadKeeper, feeRecipient, communityVault);
+    }
+
+    /// @notice Returns all global stats plus pause and nonce.
+    function getFullGlobalStats() external view returns (
+        uint256 totalLaunches_,
+        uint256 totalVolume_,
+        uint256 totalFees_,
+        uint256 totalBuys_,
+        uint256 totalSells_,
+        uint256 currentLaunchNonce_,
+        bool paused_,
+        uint256 chainId_
+    ) {
+        return (
+            totalLaunchesCreated,
+            totalVolumeWei,
+            totalFeesCollected,
+            totalBuysExecuted,
+            totalSellsExecuted,
+            launchNonce,
+            komPaused,
+            block.chainid
+        );
+    }
+
+    /// @notice Compute name hash from string (keccak256 of the string).
+    function hashLaunchName(string calldata name) external pure returns (bytes32) {
+        return keccak256(bytes(name));
